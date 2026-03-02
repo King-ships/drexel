@@ -462,7 +462,8 @@
 <div class="notif" id="notif">👁 Question dispatched to the King</div>
 
 <script>
-const PROXY_URL = window.DREXEL_PROXY_URL || 'http://localhost:3000';
+// Auto-detect: uses same origin when deployed, falls back to localhost for local dev
+const PROXY_URL = window.DREXEL_PROXY_URL || (window.location.hostname === 'localhost' ? 'http://localhost:3000' : window.location.origin);
 
 const chatHistory = [];
 let isStreaming = false;
