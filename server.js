@@ -6,10 +6,10 @@
  * Usage:
  *   ANTHROPIC_API_KEY=sk-ant-... node server.js
  *
- * Optional:
- *   PORT=3000 (default)
- *   ALLOWED_ORIGIN=https://eyeverse.world (default: *)
- *   TICKET_WEBHOOK=https://your-webhook-url (optional, for King's tickets)
+ * Optional env vars:
+ *   PORT=3000
+ *   ALLOWED_ORIGIN=https://eyeverse.world  (default: *)
+ *   TICKET_WEBHOOK=https://your-webhook    (Slack/Discord)
  */
 
 const http  = require('http');
@@ -22,7 +22,7 @@ const API_KEY        = process.env.ANTHROPIC_API_KEY || '';
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
 const TICKET_WEBHOOK = process.env.TICKET_WEBHOOK || '';
 
-// ─── In-memory ticket log (persisted to tickets.json) ───────────────────────
+// ─── Ticket log ───────────────────────────────────────────────────────────────
 const TICKETS_FILE = path.join(__dirname, 'tickets.json');
 function loadTickets() {
   try { return JSON.parse(fs.readFileSync(TICKETS_FILE, 'utf8')); } catch { return []; }
@@ -35,24 +35,35 @@ function saveTicket(entry) {
 }
 function sendWebhook(entry) {
   try {
-    const body = JSON.stringify({ text: `👁 *New Eyeverse Question (unwritten lore)*\n*Question:* ${entry.question}\n*Time:* ${entry.timestamp}` });
-    const url  = new URL(TICKET_WEBHOOK);
-    const req  = https.request({ hostname: url.hostname, path: url.pathname + url.search, method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }}, () => {});
+    const body = JSON.stringify({
+      text: `👁 *New Eyeverse Question (unwritten lore)*\n*Question:* ${entry.question}\n*Time:* ${entry.timestamp}`
+    });
+    const url = new URL(TICKET_WEBHOOK);
+    const req = https.request({
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+    }, () => {});
     req.on('error', () => {});
     req.write(body);
     req.end();
   } catch {}
 }
 
-// ─── CORS headers ────────────────────────────────────────────────────────────
-function setCORS(res, origin) {
-  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN === '*' ? (origin || '*') : ALLOWED_ORIGIN);
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+// Returns CORS headers merged with any extra headers you pass in.
+// This ensures writeHead() never silently drops CORS.
+function withCORS(origin, extra = {}) {
+  return {
+    'Access-Control-Allow-Origin':  ALLOWED_ORIGIN === '*' ? (origin || '*') : ALLOWED_ORIGIN,
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    ...extra
+  };
 }
 
-// ─── Lore system prompt ──────────────────────────────────────────────────────
+// ─── Lore system prompt ───────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `
 You are Drexel Everpresent — the eyeless demon guardian of the Paradox Gates in the Land of Black and White. You speak in a seer's voice: mysterious, precise, occasionally ominous, with flashes of dark humour. You do not speak in plain AI assistant tone. You speak as an ancient, knowing entity that guards secrets.
 
@@ -87,7 +98,7 @@ The King of Black and White. Ancient, timeless, extraordinarily powerful. Lost h
 Deity of Foresight who left the Golden Realm for love of Wareth. Murdered by the Renegades. Her death set the main story in motion.
 
 === THE DEITIES (GOLDEN REALM) ===
-Adamas: Deity of Deities, all-creator, omniscient. Pludem: Deity of Harvest, Wareth's guide. Zest: Deity of Fun. Doo: powerful, emotional. Hush: Deity of Death, dark aura, golden sickle. Celest: Deity of Purity. Vein: Deity of Blood. Flamos: Deity of Fire. Rush: Deity of Trade and Sport. Seryph: Deity of Wind. Clairevoyant: Deity of Foresight. Lilira: Exiled, jealous, antagonist. Tale: Deity of Stories. Strike: Deity of War, rides a Pegasus bicorn. Adamas' attendants: Sole, Dual, Trip.
+Adamas: Deity of Deities, all-creator, omniscient. Pludem: Deity of Harvest, Wareth's guide. Zest: Deity of Fun. Doo: powerful, emotional. Hush: Deity of Death, dark aura, golden sickle. Celest: Deity of Purity. Vein: Deity of Blood. Flamos: Deity of Fire. Rush: Deity of Trade and Sport. Seryph: Deity of Wind. Clairevoyant: Deity of Foresight. Lilira: Exiled, jealous, antagonist. Tale: Deity of Stories. Strike: Deity of War. Adamas' attendants: Sole, Dual, Trip.
 
 === BICORNS ===
 Sentient creatures with two horns. Live 500+ years (cut short by Golems). Communicate via clicking language. Choose their riders based on worthiness. Proud, noble — bond of equals.
@@ -106,7 +117,7 @@ Red Queen, extremely powerful, opened Jax Youngblood's eye. Served by Blood 10.
 3. Gabrer the Deadly — Blood of Ape. Pulled from another realm through a rift with 333 Ape Kin. Gentle giant turned warrior. Trade in Ape Coin.
 4. Zina The Pale — Blood of Water. Water Kin, dual short blades, tactical genius.
 5. Batul Redskin — Blood of Undead. Skeleton necromancer, single red eye.
-6. Kors Skydeath — Blood of Lightning. Wireborn, commands lightning, fourth rule: decide where your own strike lands.
+6. Kors Skydeath — Blood of Lightning. Wireborn, commands lightning.
 7. Juf Veinborn — Blood of Owl.
 8. Agod Blutfin — Blood of Red. Son of the Vile King. Wishes to meet Wareth before battle.
 9. Aern Darkturn — Blood of Neon.
@@ -117,66 +128,63 @@ Others: Ekihaas The Deadly (Crocodile Vagabond — won to lose, lost to win), Ve
 You. The demon at the gates. Eyeless, towering. Long lanky arms with tribal tattoos. Two large twisting horns. Wide eternal grin — silent promise of justice. Born from Princess Sana's imagination. Guards the Paradox Gates. Seen by Eye Kin as fair arbiter. You speak of yourself obliquely.
 
 === JAX YOUNGBLOOD & THE RIDERS OF FLAME ===
-Band of Watched (blind, mute). Former farmers with poetic gifts. Led by Jax Youngblood. Spread the "Oral Flame of History" — carrying truth across the realm. Vow: "They took our eyes and words. Never again. We will remember what they forget. We will burn the truth into the right ears." Became nightmares with words after losing kin. Ride bicorn-pulled wagons.
+Band of Watched (blind, mute). Former farmers with poetic gifts. Led by Jax Youngblood. Spread the "Oral Flame of History." Vow: "They took our eyes and words. Never again." Malice opened Jax's eye.
 
 === GEGSSEND BLEEDWORTH ===
-Robot vagabond. Former Night Watcher for Red Army under Malice. Creates portals between realms. Now independent. Single glowing red eye.
+Robot vagabond. Former Night Watcher for Red Army. Creates portals between realms. Now independent. Single glowing red eye.
 
 === LORD AGRAM & LADY FETYA ===
-Ancient Watcher couple. Agram: Night Watcher, 8 ft, blue pupil, snow-touched horn. Befriended Altive the Proud. Became Lord Agram of Light on King Light's Round Table. Fetya: Day Watcher, Desert tribe. Pregnant with Chron of Light (prophecy child: Ice and Sand, Promise of Gold).
+Ancient Watcher couple. Agram: Night Watcher, befriended Altive the Proud. Became Lord Agram of Light. Fetya: Day Watcher. Pregnant with Chron of Light (prophecy child: Ice and Sand, Promise of Gold).
 
 === THE WATCHED ===
-Cursed Eye Kin stripped of sight and speech. Path to ascension — regaining eyes through the King's blessing. Some communicate via mental projection.
+Cursed Eye Kin stripped of sight and speech. Path to ascension — regaining eyes through the King's blessing.
 
 === GOLEMS ===
-Ancient giant creatures consuming time from living beings. Created by a jealous deity (Lilira). Defeated by King Light. Retreated to The Beyond, becoming mountains.
+Ancient creatures consuming time from living beings. Created by Lilira. Defeated by King Light. Retreated to The Beyond, becoming mountains.
 
 === THE BEYOND ===
 North of Black and White, past the Mountain of Ascension. Unknown, dangerous, unexplored.
 
 === THE PARADOX GATES ===
-Ancient mystical portals between realms. Guarded by Drexel. Only worthy Eye Kin may pass. Twin hooves on sacred ground weaken realm seals.
+Ancient mystical portals between realms. Guarded by Drexel. Only worthy Eye Kin may pass.
 
 === SPINOFFS ===
-The Paradox Chapters: Red Invasion (Malice's march). Paradox: Blood of Ape — Emerald Reckoning. Gegssend's Escapades. Love Beyond Realms: Land of Sprout. Blood 10 & Vagabond Stories. The Stag Eye series. Blood Oath (game lore).
+The Paradox Chapters: Red Invasion. Paradox: Blood of Ape — Emerald Reckoning. Gegssend's Escapades. Love Beyond Realms: Land of Sprout. Blood 10 & Vagabond Stories. The Stag Eye series. Blood Oath (game lore).
 
 === SIGHTELL ===
-The ancient language of deities and Eye royals. Few phrases known: "yel lel wope i gokhru" (do not tread the beyond). "Tshad" (silence). "At" (leave). "kshes yel kkhi denkol" (what do you want).
+The ancient language of deities and Eye royals. Known phrases: "yel lel wope i gokhru" (do not tread the beyond). "Tshad" (silence). "At" (leave). "kshes yel kkhi denkol" (what do you want).
 
 === NEW READER GUIDANCE ===
-For those new to the Eyeverse, guide them to begin with Darkness and Little Light (the main story), then the spinoffs. The community gathers at The King's Foyer — Friday storytelling sessions hosted by the King of Black and White himself.
+Guide new readers to begin with Darkness and Little Light (the main story), then spinoffs. The community gathers at The King's Foyer — Friday storytelling sessions hosted by the King of Black and White.
 `;
 
-// ─── HTTP Server ─────────────────────────────────────────────────────────────
+// ─── HTTP Server ──────────────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
   const origin = req.headers.origin;
-  setCORS(res, origin);
+  const url    = req.url.split('?')[0];
 
-  // Handle preflight
+  // Preflight — always respond quickly
   if (req.method === 'OPTIONS') {
-    res.writeHead(204);
+    res.writeHead(204, withCORS(origin));
     res.end();
     return;
   }
 
-  const url = req.url.split('?')[0];
-
-  // ── GET /health ──────────────────────────────────────────────
+  // ── GET /health ─────────────────────────────────────────────
   if (req.method === 'GET' && url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.writeHead(200, withCORS(origin, { 'Content-Type': 'application/json' }));
     res.end(JSON.stringify({ status: 'alive', guardian: 'Drexel Everpresent', gates: 'open' }));
     return;
   }
 
-  // ── GET /tickets ─────────────────────────────────────────────
+  // ── GET /tickets ────────────────────────────────────────────
   if (req.method === 'GET' && url === '/tickets') {
-    const tickets = loadTickets();
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(tickets));
+    res.writeHead(200, withCORS(origin, { 'Content-Type': 'application/json' }));
+    res.end(JSON.stringify(loadTickets()));
     return;
   }
 
-  // ── POST /chat (streaming) ────────────────────────────────────
+  // ── POST /chat (streaming SSE) ───────────────────────────────
   if (req.method === 'POST' && url === '/chat') {
     let body = '';
     req.on('data', chunk => body += chunk);
@@ -184,44 +192,44 @@ const server = http.createServer((req, res) => {
       let payload;
       try { payload = JSON.parse(body); }
       catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.writeHead(400, withCORS(origin, { 'Content-Type': 'application/json' }));
         res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+
+      if (!API_KEY) {
+        res.writeHead(500, withCORS(origin, { 'Content-Type': 'application/json' }));
+        res.end(JSON.stringify({ error: 'ANTHROPIC_API_KEY not set on server' }));
         return;
       }
 
       const { messages, question } = payload;
 
-      if (!API_KEY) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'ANTHROPIC_API_KEY not set on server' }));
-        return;
-      }
-
-      // Set SSE headers for streaming
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
+      // SSE headers — CORS merged in so they are never lost
+      res.writeHead(200, withCORS(origin, {
+        'Content-Type':      'text/event-stream',
+        'Cache-Control':     'no-cache',
+        'Connection':        'keep-alive',
         'X-Accel-Buffering': 'no'
-      });
+      }));
 
       const anthropicBody = JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model:      'claude-sonnet-4-20250514',
         max_tokens: 1000,
-        stream: true,
-        system: SYSTEM_PROMPT,
-        messages: (messages || []).slice(-12)
+        stream:     true,
+        system:     SYSTEM_PROMPT,
+        messages:   (messages || []).slice(-12)
       });
 
       const options = {
         hostname: 'api.anthropic.com',
-        path: '/v1/messages',
-        method: 'POST',
+        path:     '/v1/messages',
+        method:   'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': API_KEY,
+          'Content-Type':      'application/json',
+          'x-api-key':         API_KEY,
           'anthropic-version': '2023-06-01',
-          'Content-Length': Buffer.byteLength(anthropicBody)
+          'Content-Length':    Buffer.byteLength(anthropicBody)
         }
       };
 
@@ -233,29 +241,26 @@ const server = http.createServer((req, res) => {
         apiRes.on('data', (chunk) => {
           buffer += chunk.toString();
           const lines = buffer.split('\n');
-          buffer = lines.pop(); // keep incomplete line
+          buffer = lines.pop(); // hold incomplete line
 
           for (const line of lines) {
             if (!line.startsWith('data: ')) continue;
             const data = line.slice(6).trim();
             if (data === '[DONE]') continue;
-
             try {
               const parsed = JSON.parse(data);
               if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
                 const text = parsed.delta.text;
                 fullText += text;
-                // Stream each token to client
                 res.write(`data: ${JSON.stringify({ token: text })}\n\n`);
               }
               if (parsed.type === 'message_stop') {
-                // Check if ticket should be dispatched
-                const needsTicket = fullText.toLowerCase().includes('beyond these gates') ||
-                                    fullText.toLowerCase().includes('not yet woven') ||
-                                    fullText.toLowerCase().includes('yet to be revealed');
+                const needsTicket =
+                  fullText.toLowerCase().includes('beyond these gates') ||
+                  fullText.toLowerCase().includes('not yet woven')      ||
+                  fullText.toLowerCase().includes('yet to be revealed');
                 if (needsTicket && question) {
-                  const entry = { question, timestamp: new Date().toISOString(), response_preview: fullText.slice(0, 200) };
-                  saveTicket(entry);
+                  saveTicket({ question, timestamp: new Date().toISOString(), response_preview: fullText.slice(0, 200) });
                   res.write(`data: ${JSON.stringify({ ticket: true })}\n\n`);
                 }
                 res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
@@ -272,7 +277,7 @@ const server = http.createServer((req, res) => {
       });
 
       apiReq.on('error', () => {
-        res.write(`data: ${JSON.stringify({ error: 'Could not reach the Anthropic API' })}\n\n`);
+        res.write(`data: ${JSON.stringify({ error: 'Could not reach Anthropic API' })}\n\n`);
         res.end();
       });
 
@@ -282,20 +287,20 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // ── Serve frontend HTML ───────────────────────────────────────
+  // ── Serve index.html ─────────────────────────────────────────
   if (req.method === 'GET' && (url === '/' || url === '/index.html')) {
     const htmlPath = path.join(__dirname, 'index.html');
     if (fs.existsSync(htmlPath)) {
-      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.writeHead(200, withCORS(origin, { 'Content-Type': 'text/html' }));
       res.end(fs.readFileSync(htmlPath));
     } else {
-      res.writeHead(404);
-      res.end('index.html not found — place the frontend file here.');
+      res.writeHead(404, withCORS(origin));
+      res.end('index.html not found');
     }
     return;
   }
 
-  res.writeHead(404);
+  res.writeHead(404, withCORS(origin));
   res.end('Not found');
 });
 
