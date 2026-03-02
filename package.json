@@ -1,0 +1,16 @@
+{
+  "name": "drexel-everpresent",
+  "version": "1.0.0",
+  "description": "Drexel Everpresent — Eyeverse Lore Agent Proxy Server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "keywords": ["eyeverse", "drexel", "lore", "proxy"],
+  "author": "Eye Labs",
+  "license": "ISC"
+}
